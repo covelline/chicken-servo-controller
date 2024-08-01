@@ -23,7 +23,6 @@ should_move = False  # 実際にサーボを動かすかどうか
 # GPIOピンの設定
 PWM_PIN = 13
 if should_move:
-    GPIO.setwarnings(False)
     GPIO.setmode(GPIO.BCM)
     GPIO.setup(PWM_PIN, GPIO.OUT)
     pwm = GPIO.PWM(PWM_PIN, PWM_FREQUENCY)  # 周波数を50Hzに設定
