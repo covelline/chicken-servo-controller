@@ -51,7 +51,10 @@ def move_servo():
     if should_move:
         pwm.ChangeDutyCycle(duty)
     time.sleep(SLEEP_TIME_MS / 1000)  # ミリ秒を秒に変換
-    
+
+    # デューティ比を0にして停止
+    pwm.ChangeDutyCycle(0)
+
     moving = False
 
 def check_key_press():
