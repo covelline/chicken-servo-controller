@@ -39,14 +39,12 @@ def move_servo():
         return
     moving = True
     try:
-        print("Moving to MAX angle...")
         duty = get_duty(MAX_ANGLE)
         print(f"Moving to {MAX_ANGLE} degrees with duty cycle: {duty:.2f}%")
         if should_move:
             pwm.ChangeDutyCycle(duty)
         time.sleep(SLEEP_TIME_MS / 1000)  # ミリ秒を秒に変換
 
-        print("Returning to 0 degrees...")
         duty = get_duty(0)
         print(f"Moving to 0 degrees with duty cycle: {duty:.2f}%")
         if should_move:
@@ -58,18 +56,23 @@ def move_servo():
     finally:
         moving = False  # 動作終了後にフラグをリセット
 
+def note_number_to_name(note_number):
+    """ノート番号を音名に変換する関数"""
+    note_names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+    octave = note_number // 12 - 1
+    note_name = note_names[note_number % 12]
+    return f"{note_name}{octave}"
+
 def midi_callback(message, _):
-    print("MIDI callback triggered")
-    print(f"Received MIDI message: {message}")
     global moving
     if moving:
         print("Ignoring input, servo is already moving.")
         return
-    status, note, velocity = message
 
-    if status == 144 and velocity > 0:  # Note Onメッセージかつvelocityが0より大きい場合
-        print(f"MIDI Note On received with velocity: {velocity}")
-        move_servo()
+    note_number = message[0][1]
+    note_name = note_number_to_name(note_number)
+    print(f"MIDI Note On received - Note: {note_name}")
+    move_servo()         
 
 def check_key_press():
     while True:
