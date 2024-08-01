@@ -1,6 +1,6 @@
 import time
-import threading
 import RPi.GPIO as GPIO
+import rtmidi
 
 # 定数の定義
 PWM_FREQUENCY = 50  # PWM信号の周波数 (Hz)
@@ -18,14 +18,16 @@ DUTY_RANGE = MAX_DUTY - MIN_DUTY  # デューティ比の範囲
 
 # グローバル変数
 moving = False  # サーボモーターが動いているかどうか
-should_move = True  # 実際にサーボを動かすかどうか
+should_move = False  # 実際にサーボを動かすかどうか
 
 # GPIOピンの設定
 PWM_PIN = 13
-GPIO.setmode(GPIO.BCM)
-GPIO.setup(PWM_PIN, GPIO.OUT)
-pwm = GPIO.PWM(PWM_PIN, PWM_FREQUENCY)  # 周波数を50Hzに設定
-pwm.start(0)
+if should_move:
+    GPIO.setwarnings(False)
+    GPIO.setmode(GPIO.BCM)
+    GPIO.setup(PWM_PIN, GPIO.OUT)
+    pwm = GPIO.PWM(PWM_PIN, PWM_FREQUENCY)  # 周波数を50Hzに設定
+    pwm.start(0)
 
 def get_duty(degree: int):
     """角度に対応するデューティ比を計算する関数"""
@@ -34,46 +36,89 @@ def get_duty(degree: int):
 def move_servo():
     global moving
     if moving:
+        print("Already moving, ignoring input.")
         return
     moving = True
-    print("Moving to MAX angle...")
-    duty = get_duty(MAX_ANGLE)
-    print(f"Moving to {MAX_ANGLE} degrees with duty cycle: {duty:.2f}%")
-    # サーボを動かす
-    if should_move:
-        pwm.ChangeDutyCycle(duty) 
-    time.sleep(SLEEP_TIME_MS / 1000)  # ミリ秒を秒に変換
+    try:
+        print("Moving to MAX angle...")
+        duty = get_duty(MAX_ANGLE)
+        print(f"Moving to {MAX_ANGLE} degrees with duty cycle: {duty:.2f}%")
+        if should_move:
+            pwm.ChangeDutyCycle(duty)
+        time.sleep(SLEEP_TIME_MS / 1000)  # ミリ秒を秒に変換
 
-    print("Returning to 0 degrees...")
-    duty = get_duty(0)
-    print(f"Moving to 0 degrees with duty cycle: {duty:.2f}%")
-    # サーボモーターを戻す
-    if should_move:
-        pwm.ChangeDutyCycle(duty)
-    time.sleep(SLEEP_TIME_MS / 1000)  # ミリ秒を秒に変換
+        print("Returning to 0 degrees...")
+        duty = get_duty(0)
+        print(f"Moving to 0 degrees with duty cycle: {duty:.2f}%")
+        if should_move:
+            pwm.ChangeDutyCycle(duty)
+        time.sleep(SLEEP_TIME_MS / 1000)  # ミリ秒を秒に変換
 
-    # デューティ比を0にして停止
-    pwm.ChangeDutyCycle(0)
+        if should_move:
+            pwm.ChangeDutyCycle(0)  # デューティ比を0にして停止
+    finally:
+        moving = False  # 動作終了後にフラグをリセット
 
-    moving = False
+def midi_callback(message, _):
+    print("MIDI callback triggered")
+    print(f"Received MIDI message: {message}")
+    global moving
+    if moving:
+        print("Ignoring input, servo is already moving.")
+        return
+    status, note, velocity = message
+
+    if status == 144 and velocity > 0:  # Note Onメッセージかつvelocityが0より大きい場合
+        print(f"MIDI Note On received with velocity: {velocity}")
+        move_servo()
 
 def check_key_press():
     while True:
         input("Press Enter to move servo: ")  # キー入力の待機
-        move_servo()
+        if not moving:
+            move_servo()
+        else:
+            print("Ignoring input, servo is already moving.")
+
+def is_real_midi_device(port_name):
+    """実際のMIDIデバイスかどうかを判定する関数"""
+    # ここでは、仮想デバイスやミディスルーデバイスを除外する
+    return "Midi Through" not in port_name and "Virtual" not in port_name
 
 def main():
-    # キー入力を監視するスレッドを開始
-    key_thread = threading.Thread(target=check_key_press, daemon=True)
-    key_thread.start()
+    midi_in = rtmidi.MidiIn()
+    ports = midi_in.get_ports()
 
-    try:
-        while True:
-            # メインスレッドの処理（ここでは特に何もしない）
-            time.sleep(1)
-    except KeyboardInterrupt:
-        pass
-    finally:
+    # 実際のMIDIデバイスをフィルタリング
+    real_midi_ports = [port for port in ports if is_real_midi_device(port)]
+
+    if real_midi_ports:  # 実際のMIDIデバイスが存在する場合
+        try:
+            # 最初の実際のMIDIデバイスを使用
+            selected_port_index = ports.index(real_midi_ports[0])
+            print(f"Opening MIDI port: {real_midi_ports[0]}")
+            midi_in.open_port(selected_port_index)
+            midi_in.set_callback(midi_callback)
+            print("Listening for MIDI input... Press Ctrl+C to exit.")
+            try:
+                while True:
+                    time.sleep(1)  # MIDI入力待ち
+            except KeyboardInterrupt:
+                print("Exiting...")
+            finally:
+                midi_in.close_port()
+        except (rtmidi.InvalidPortError, IndexError) as e:
+            print(f"Error opening MIDI port: {e}")
+            print("No real MIDI input ports available. Switching to keyboard input.")
+            check_key_press()  # キーボード入力モード
+    else:  # 実際のMIDIデバイスが存在しない場合
+        print("No real MIDI input ports available. Switching to keyboard input.")
+        try:
+            check_key_press()  # キーボード入力モード
+        except KeyboardInterrupt:
+            print("Exiting...")
+
+    if should_move:
         pwm.stop()
         GPIO.cleanup()
         print("GPIO cleanup and program exit.")
