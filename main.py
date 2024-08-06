@@ -18,11 +18,11 @@ DUTY_RANGE = MAX_DUTY - MIN_DUTY  # デューティ比の範囲
 
 # グローバル変数
 moving = False  # サーボモーターが動いているかどうか
-should_move = False  # 実際にサーボを動かすかどうか
+should_send_signal = False  # 実際にサーボを動かすかどうか
 
 # GPIOピンの設定
 PWM_PIN = 13
-if should_move:
+if should_send_signal:
     GPIO.setmode(GPIO.BCM)
     GPIO.setup(PWM_PIN, GPIO.OUT)
     pwm = GPIO.PWM(PWM_PIN, PWM_FREQUENCY)  # 周波数を50Hzに設定
@@ -41,17 +41,17 @@ def move_servo():
     try:
         duty = get_duty(MAX_ANGLE)
         print(f"Moving to {MAX_ANGLE} degrees with duty cycle: {duty:.2f}%")
-        if should_move:
+        if should_send_signal:
             pwm.ChangeDutyCycle(duty)
         time.sleep(SLEEP_TIME_MS / 1000)  # ミリ秒を秒に変換
 
         duty = get_duty(0)
         print(f"Moving to 0 degrees with duty cycle: {duty:.2f}%")
-        if should_move:
+        if should_send_signal:
             pwm.ChangeDutyCycle(duty)
         time.sleep(SLEEP_TIME_MS / 1000)  # ミリ秒を秒に変換
 
-        if should_move:
+        if should_send_signal:
             pwm.ChangeDutyCycle(0)  # デューティ比を0にして停止
     finally:
         moving = False  # 動作終了後にフラグをリセット
@@ -120,7 +120,7 @@ def main():
         except KeyboardInterrupt:
             print("Exiting...")
 
-    if should_move:
+    if should_send_signal:
         pwm.stop()
         GPIO.cleanup()
         print("GPIO cleanup and program exit.")
