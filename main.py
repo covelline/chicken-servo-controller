@@ -1,58 +1,48 @@
 import time
-import RPi.GPIO as GPIO
+import board
 import rtmidi
+from adafruit_motor import servo
+from adafruit_pca9685 import PCA9685
 
 # 定数の定義
 PWM_FREQUENCY = 50  # PWM信号の周波数 (Hz)
-PERIOD_MS = 1000 / PWM_FREQUENCY  # 周期 (ms)
 MIN_PULSE_WIDTH = 500  # 最小パルス幅 (µs)
 MAX_PULSE_WIDTH = 2500  # 最大パルス幅 (µs)
 ANGLE_RANGE = 180  # サーボモーターの角度範囲
 MAX_ANGLE = 180  # 最大角度
 SLEEP_TIME_MS = 1000  # サーボモーターが指定角度に到達するまでの待機時間 (ミリ秒)
 
-# デューティ比の計算
-MIN_DUTY = (MIN_PULSE_WIDTH / (PERIOD_MS * 1000)) * 100  # 最小デューティ比（%）
-MAX_DUTY = (MAX_PULSE_WIDTH / (PERIOD_MS * 1000)) * 100  # 最大デューティ比（%）
-DUTY_RANGE = MAX_DUTY - MIN_DUTY  # デューティ比の範囲
-
 # グローバル変数
 moving = False  # サーボモーターが動いているかどうか
-should_send_signal = False  # 実際にサーボを動かすかどうか
+should_send_signal = True  # 実際にサーボを動かすかどうか
 
-# GPIOピンの設定
-PWM_PIN = 13
-if should_send_signal:
-    GPIO.setmode(GPIO.BCM)
-    GPIO.setup(PWM_PIN, GPIO.OUT)
-    pwm = GPIO.PWM(PWM_PIN, PWM_FREQUENCY)  # 周波数を50Hzに設定
-    pwm.start(0)
 
-def get_duty(degree: int):
-    """角度に対応するデューティ比を計算する関数"""
-    return (degree * DUTY_RANGE / ANGLE_RANGE) + MIN_DUTY
+# PCA9685の設定
+i2c = board.I2C()  # uses board.SCL and board.SDA
+pca = PCA9685(i2c)
+pca.frequency = PWM_FREQUENCY
 
-def move_servo():
+# サーボのチャンネル番号
+SERVO_CHANNEL = 0
+servo_motor = servo.Servo(pca.channels[SERVO_CHANNEL], min_pulse=MIN_PULSE_WIDTH, max_pulse=MAX_PULSE_WIDTH)
+
+def move_servo(channel):
     global moving
     if moving:
         print("Already moving, ignoring input.")
         return
     moving = True
     try:
-        duty = get_duty(MAX_ANGLE)
-        print(f"Moving to {MAX_ANGLE} degrees with duty cycle: {duty:.2f}%")
+        print(f"Moving to {MAX_ANGLE} degrees on channel {channel}")
         if should_send_signal:
-            pwm.ChangeDutyCycle(duty)
+            servo_motor.angle = MAX_ANGLE
         time.sleep(SLEEP_TIME_MS / 1000)  # ミリ秒を秒に変換
 
-        duty = get_duty(0)
-        print(f"Moving to 0 degrees with duty cycle: {duty:.2f}%")
+        print(f"Returning to 0 degrees on channel {channel}")
         if should_send_signal:
-            pwm.ChangeDutyCycle(duty)
+            servo_motor.angle = 0
         time.sleep(SLEEP_TIME_MS / 1000)  # ミリ秒を秒に変換
 
-        if should_send_signal:
-            pwm.ChangeDutyCycle(0)  # デューティ比を0にして停止
     finally:
         moving = False  # 動作終了後にフラグをリセット
 
@@ -72,13 +62,14 @@ def midi_callback(message, _):
     note_number = message[0][1]
     note_name = note_number_to_name(note_number)
     print(f"MIDI Note On received - Note: {note_name}")
-    move_servo()         
+    # TODO: 実際の音階に応じたモーター
+    move_servo(SERVO_CHANNEL)
 
 def check_key_press():
     while True:
         input("Press Enter to move servo: ")  # キー入力の待機
         if not moving:
-            move_servo()
+            move_servo(SERVO_CHANNEL)
         else:
             print("Ignoring input, servo is already moving.")
 
@@ -120,10 +111,8 @@ def main():
         except KeyboardInterrupt:
             print("Exiting...")
 
-    if should_send_signal:
-        pwm.stop()
-        GPIO.cleanup()
-        print("GPIO cleanup and program exit.")
+    pca.deinit()
+    print("Program exit.")
 
 if __name__ == "__main__":
     main()
