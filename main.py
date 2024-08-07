@@ -16,15 +16,13 @@ SLEEP_TIME_MS = 1000  # サーボモーターが指定角度に到達するま�
 moving = False  # サーボモーターが動いているかどうか
 should_send_signal = True  # 実際にサーボを動かすかどうか
 
-
 # PCA9685の設定
 i2c = board.I2C()  # uses board.SCL and board.SDA
 pca = PCA9685(i2c)
 pca.frequency = PWM_FREQUENCY
 
 # サーボのチャンネル番号
-SERVO_CHANNEL = 0
-servo_motor = servo.Servo(pca.channels[SERVO_CHANNEL], min_pulse=MIN_PULSE_WIDTH, max_pulse=MAX_PULSE_WIDTH)
+servo_motors = [servo.Servo(pca.channels[i], min_pulse=MIN_PULSE_WIDTH, max_pulse=MAX_PULSE_WIDTH) for i in range(16)]
 
 def move_servo(channel):
     global moving
@@ -35,12 +33,12 @@ def move_servo(channel):
     try:
         print(f"Moving to {MAX_ANGLE} degrees on channel {channel}")
         if should_send_signal:
-            servo_motor.angle = MAX_ANGLE
+            servo_motors[channel].angle = MAX_ANGLE
         time.sleep(SLEEP_TIME_MS / 1000)  # ミリ秒を秒に変換
 
         print(f"Returning to 0 degrees on channel {channel}")
         if should_send_signal:
-            servo_motor.angle = 0
+            servo_motors[channel].angle = 0
         time.sleep(SLEEP_TIME_MS / 1000)  # ミリ秒を秒に変換
 
     finally:
@@ -53,6 +51,10 @@ def note_number_to_name(note_number):
     note_name = note_names[note_number % 12]
     return f"{note_name}{octave}"
 
+def note_to_channel(note_number):
+    """音階をチャンネルに変換する関数。現在はチャンネル0を返す"""
+    return 0
+
 def midi_callback(message, _):
     global moving
     if moving:
@@ -62,32 +64,35 @@ def midi_callback(message, _):
     note_number = message[0][1]
     note_name = note_number_to_name(note_number)
     print(f"MIDI Note On received - Note: {note_name}")
-    # TODO: 実際の音階に応じたモーター
-    move_servo(SERVO_CHANNEL)
+    channel = note_to_channel(note_number)
+    move_servo(channel)
 
 def check_key_press():
     while True:
-        input("Press Enter to move servo: ")  # キー入力の待機
-        if not moving:
-            move_servo(SERVO_CHANNEL)
-        else:
-            print("Ignoring input, servo is already moving.")
+        try:
+            channel = int(input("Enter a channel (0-15): "))
+            if 0 <= channel <= 15:
+                if not moving:
+                    move_servo(channel)
+                else:
+                    print("Ignoring input, servo is already moving.")
+            else:
+                print("Please enter a valid channel number between 0 and 15.")
+        except ValueError:
+            print("Please enter a valid channel number between 0 and 15.")
 
 def is_real_midi_device(port_name):
     """実際のMIDIデバイスかどうかを判定する関数"""
-    # ここでは、仮想デバイスやミディスルーデバイスを除外する
     return "Midi Through" not in port_name and "Virtual" not in port_name
 
 def main():
     midi_in = rtmidi.MidiIn()
     ports = midi_in.get_ports()
 
-    # 実際のMIDIデバイスをフィルタリング
     real_midi_ports = [port for port in ports if is_real_midi_device(port)]
 
     if real_midi_ports:  # 実際のMIDIデバイスが存在する場合
         try:
-            # 最初の実際のMIDIデバイスを使用
             selected_port_index = ports.index(real_midi_ports[0])
             print(f"Opening MIDI port: {real_midi_ports[0]}")
             midi_in.open_port(selected_port_index)
