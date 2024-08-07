@@ -1,7 +1,6 @@
 import time
 import board
 import rtmidi
-from adafruit_motor import servo
 from adafruit_pca9685 import PCA9685
 
 # 定数の定義
@@ -12,17 +11,28 @@ ANGLE_RANGE = 180  # サーボモーターの角度範囲
 MAX_ANGLE = 180  # 最大角度
 SLEEP_TIME_MS = 1000  # サーボモーターが指定角度に到達するまでの待機時間 (ミリ秒)
 
-# グローバル変数
-moving = False  # サーボモーターが動いているかどうか
-should_send_signal = True  # 実際にサーボを動かすかどうか
-
 # PCA9685の設定
 i2c = board.I2C()  # uses board.SCL and board.SDA
 pca = PCA9685(i2c)
 pca.frequency = PWM_FREQUENCY
 
 # サーボのチャンネル番号
-servo_motors = [servo.Servo(pca.channels[i], min_pulse=MIN_PULSE_WIDTH, max_pulse=MAX_PULSE_WIDTH) for i in range(16)]
+servo_channels = [pca.channels[i] for i in range(16)]
+
+# グローバル変数
+moving = False  # サーボモーターが動いているかどうか
+should_send_signal = True  # 実際にサーボを動かすかどうか
+
+def get_pulse_width(degree):
+    """角度に対応するパルス幅を計算する関数"""
+    pulse_width = MIN_PULSE_WIDTH + (MAX_PULSE_WIDTH - MIN_PULSE_WIDTH) * (degree / ANGLE_RANGE)
+    return pulse_width
+
+def get_duty_cycle(degree):
+    """角度に対応するデューティサイクルを計算する関数"""
+    pulse_width = get_pulse_width(degree)
+    duty_cycle = int((pulse_width / 1000000) * pca.frequency * 65535)
+    return duty_cycle
 
 def move_servo(channel):
     global moving
@@ -33,12 +43,16 @@ def move_servo(channel):
     try:
         print(f"Moving to {MAX_ANGLE} degrees on channel {channel}")
         if should_send_signal:
-            servo_motors[channel].angle = MAX_ANGLE
+            duty_cycle = get_duty_cycle(MAX_ANGLE)
+            print(f"Duty Cycle: {duty_cycle}, Pulse Width: {get_pulse_width(MAX_ANGLE)}")
+            servo_channels[channel].duty_cycle = duty_cycle
         time.sleep(SLEEP_TIME_MS / 1000)  # ミリ秒を秒に変換
 
         print(f"Returning to 0 degrees on channel {channel}")
         if should_send_signal:
-            servo_motors[channel].angle = 0
+            duty_cycle = get_duty_cycle(0)
+            print(f"Duty Cycle: {duty_cycle}, Pulse Width: {get_pulse_width(0)}")
+            servo_channels[channel].duty_cycle = duty_cycle
         time.sleep(SLEEP_TIME_MS / 1000)  # ミリ秒を秒に変換
 
     finally:
