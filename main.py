@@ -82,16 +82,18 @@ def midi_callback(message, _):
         print("Ignoring input, servo is already moving.")
         return
 
-    note_number = message[0][1]
-    note_name = note_number_to_name(note_number)
-    print(f"MIDI Note On received - Note: {note_name}")
-    channel = note_to_channel(note_number)
-    if channel != -1 and should_send_signal:
-        move_servo(channel, ORIGIN_ANGLE)
-        move_servo(channel, TARGET_ANGLE)
-        move_servo(channel, START_ANGLE)
-    else:
-        print(f"Note {note_name} is out of the channel mapping range.")
+    status, _, note_number = message[0]
+    # Note On(144)のみイベントを流す
+    if status == 144:
+        note_name = note_number_to_name(note_number)
+        print(f"MIDI Note On received - Note: {note_name}")
+        channel = note_to_channel(note_number)
+        if channel != -1 and should_send_signal:
+            move_servo(channel, ORIGIN_ANGLE)
+            move_servo(channel, TARGET_ANGLE)
+            move_servo(channel, START_ANGLE)
+        else:
+            print(f"Note {note_name} is out of the channel mapping range.")
 
 def check_key_press():
     while True:
