@@ -62,8 +62,19 @@ def note_number_to_name(note_number):
     return f"{note_name}{octave}"
 
 def note_to_channel(note_number):
-    """音階をチャンネルに変換する関数。現在はチャンネル0を返す"""
-    return 0
+    """音階をチャンネルに変換する関数。B3からC4を0-9にマッピング"""
+    note_to_channel_map = {
+        59: 0,  # B3
+        60: 1,  # C4
+        62: 2,  # D4
+        64: 3,  # E4
+        65: 4,  # F4
+        67: 5,  # G4
+        69: 6,  # A4
+        71: 7,  # B4
+        72: 8,  # C5
+    }
+    return note_to_channel_map.get(note_number, -1)  # 該当しない場合は-1を返す
 
 def midi_callback(message, _):
     global moving
@@ -75,9 +86,12 @@ def midi_callback(message, _):
     note_name = note_number_to_name(note_number)
     print(f"MIDI Note On received - Note: {note_name}")
     channel = note_to_channel(note_number)
-    move_servo(channel, ORIGIN_ANGLE)
-    move_servo(channel, TARGET_ANGLE)
-    move_servo(channel, START_ANGLE)
+    if channel != -1 and should_send_signal:
+        move_servo(channel, ORIGIN_ANGLE)
+        move_servo(channel, TARGET_ANGLE)
+        move_servo(channel, START_ANGLE)
+    else:
+        print(f"Note {note_name} is out of the channel mapping range.")
 
 def check_key_press():
     while True:
