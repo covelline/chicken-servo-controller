@@ -8,7 +8,11 @@ PWM_FREQUENCY = 50  # PWM信号の周波数 (Hz)
 MIN_PULSE_WIDTH = 500  # 最小パルス幅 (µs)
 MAX_PULSE_WIDTH = 2500  # 最大パルス幅 (µs)
 ANGLE_RANGE = 180  # サーボモーターの角度範囲
-MAX_ANGLE = 180  # 最大角度
+# サーボモータの取り付けた方向の関係により0度→180度がチキンを押す方向と逆なので
+# スタート位置を45度として0度でなるように調整している
+START_ANGLE = 45  # スタート位置の角度
+ORIGIN_ANGLE = 0  # 原点
+TARGET_ANGLE = 75  # 目標角度
 SLEEP_TIME_MS = 1000  # サーボモーターが指定角度に到達するまでの待機時間 (ミリ秒)
 
 # PCA9685の設定
@@ -34,27 +38,19 @@ def get_duty_cycle(degree):
     duty_cycle = int((pulse_width / 1000000) * pca.frequency * 65535)
     return duty_cycle
 
-def move_servo(channel):
+def move_servo(channel, target_angle):
     global moving
     if moving:
         print("Already moving, ignoring input.")
         return
     moving = True
     try:
-        print(f"Moving to {MAX_ANGLE} degrees on channel {channel}")
+        print(f"Moving to {target_angle} degrees on channel {channel}")
         if should_send_signal:
-            duty_cycle = get_duty_cycle(MAX_ANGLE)
-            print(f"Duty Cycle: {duty_cycle}, Pulse Width: {get_pulse_width(MAX_ANGLE)}")
+            duty_cycle = get_duty_cycle(target_angle)
+            print(f"Duty Cycle: {duty_cycle}, Pulse Width: {get_pulse_width(target_angle)}")
             servo_channels[channel].duty_cycle = duty_cycle
         time.sleep(SLEEP_TIME_MS / 1000)  # ミリ秒を秒に変換
-
-        print(f"Returning to 0 degrees on channel {channel}")
-        if should_send_signal:
-            duty_cycle = get_duty_cycle(0)
-            print(f"Duty Cycle: {duty_cycle}, Pulse Width: {get_pulse_width(0)}")
-            servo_channels[channel].duty_cycle = duty_cycle
-        time.sleep(SLEEP_TIME_MS / 1000)  # ミリ秒を秒に変換
-
     finally:
         moving = False  # 動作終了後にフラグをリセット
 
@@ -79,7 +75,9 @@ def midi_callback(message, _):
     note_name = note_number_to_name(note_number)
     print(f"MIDI Note On received - Note: {note_name}")
     channel = note_to_channel(note_number)
-    move_servo(channel)
+    move_servo(channel, ORIGIN_ANGLE)
+    move_servo(channel, TARGET_ANGLE)
+    move_servo(channel, START_ANGLE)
 
 def check_key_press():
     while True:
@@ -87,7 +85,9 @@ def check_key_press():
             channel = int(input("Enter a channel (0-15): "))
             if 0 <= channel <= 15:
                 if not moving:
-                    move_servo(channel)
+                    move_servo(channel, ORIGIN_ANGLE)
+                    move_servo(channel, TARGET_ANGLE)
+                    move_servo(channel, START_ANGLE)
                 else:
                     print("Ignoring input, servo is already moving.")
             else:
