@@ -1,58 +1,56 @@
 import time
-import RPi.GPIO as GPIO
+import board
 import rtmidi
+from adafruit_pca9685 import PCA9685
 
 # 定数の定義
 PWM_FREQUENCY = 50  # PWM信号の周波数 (Hz)
-PERIOD_MS = 1000 / PWM_FREQUENCY  # 周期 (ms)
 MIN_PULSE_WIDTH = 500  # 最小パルス幅 (µs)
 MAX_PULSE_WIDTH = 2500  # 最大パルス幅 (µs)
 ANGLE_RANGE = 180  # サーボモーターの角度範囲
-MAX_ANGLE = 180  # 最大角度
+# サーボモータの取り付けた方向の関係により0度→180度がチキンを押す方向と逆なので
+# スタート位置を45度として0度でなるように調整している
+START_ANGLE = 45  # スタート位置の角度
+ORIGIN_ANGLE = 0  # 原点
+TARGET_ANGLE = 75  # 目標角度
 SLEEP_TIME_MS = 1000  # サーボモーターが指定角度に到達するまでの待機時間 (ミリ秒)
 
-# デューティ比の計算
-MIN_DUTY = (MIN_PULSE_WIDTH / (PERIOD_MS * 1000)) * 100  # 最小デューティ比（%）
-MAX_DUTY = (MAX_PULSE_WIDTH / (PERIOD_MS * 1000)) * 100  # 最大デューティ比（%）
-DUTY_RANGE = MAX_DUTY - MIN_DUTY  # デューティ比の範囲
+# PCA9685の設定
+i2c = board.I2C()  # uses board.SCL and board.SDA
+pca = PCA9685(i2c)
+pca.frequency = PWM_FREQUENCY
+
+# サーボのチャンネル番号
+servo_channels = [pca.channels[i] for i in range(16)]
 
 # グローバル変数
 moving = False  # サーボモーターが動いているかどうか
-should_move = False  # 実際にサーボを動かすかどうか
+should_send_signal = True  # 実際にサーボを動かすかどうか
 
-# GPIOピンの設定
-PWM_PIN = 13
-if should_move:
-    GPIO.setmode(GPIO.BCM)
-    GPIO.setup(PWM_PIN, GPIO.OUT)
-    pwm = GPIO.PWM(PWM_PIN, PWM_FREQUENCY)  # 周波数を50Hzに設定
-    pwm.start(0)
+def get_pulse_width(degree):
+    """角度に対応するパルス幅を計算する関数"""
+    pulse_width = MIN_PULSE_WIDTH + (MAX_PULSE_WIDTH - MIN_PULSE_WIDTH) * (degree / ANGLE_RANGE)
+    return pulse_width
 
-def get_duty(degree: int):
-    """角度に対応するデューティ比を計算する関数"""
-    return (degree * DUTY_RANGE / ANGLE_RANGE) + MIN_DUTY
+def get_duty_cycle(degree):
+    """角度に対応するデューティサイクルを計算する関数"""
+    pulse_width = get_pulse_width(degree)
+    duty_cycle = int((pulse_width / 1000000) * pca.frequency * 65535)
+    return duty_cycle
 
-def move_servo():
+def move_servo(channel, target_angle):
     global moving
     if moving:
         print("Already moving, ignoring input.")
         return
     moving = True
     try:
-        duty = get_duty(MAX_ANGLE)
-        print(f"Moving to {MAX_ANGLE} degrees with duty cycle: {duty:.2f}%")
-        if should_move:
-            pwm.ChangeDutyCycle(duty)
+        print(f"Moving to {target_angle} degrees on channel {channel}")
+        if should_send_signal:
+            duty_cycle = get_duty_cycle(target_angle)
+            print(f"Duty Cycle: {duty_cycle}, Pulse Width: {get_pulse_width(target_angle)}")
+            servo_channels[channel].duty_cycle = duty_cycle
         time.sleep(SLEEP_TIME_MS / 1000)  # ミリ秒を秒に変換
-
-        duty = get_duty(0)
-        print(f"Moving to 0 degrees with duty cycle: {duty:.2f}%")
-        if should_move:
-            pwm.ChangeDutyCycle(duty)
-        time.sleep(SLEEP_TIME_MS / 1000)  # ミリ秒を秒に変換
-
-        if should_move:
-            pwm.ChangeDutyCycle(0)  # デューティ比を0にして停止
     finally:
         moving = False  # 動作終了後にフラグをリセット
 
@@ -63,40 +61,68 @@ def note_number_to_name(note_number):
     note_name = note_names[note_number % 12]
     return f"{note_name}{octave}"
 
+def note_to_channel(note_number):
+    """音階をチャンネルに変換する関数。B3からC4を0-9にマッピング"""
+    note_to_channel_map = {
+        59: 0,  # B3
+        60: 1,  # C4
+        62: 2,  # D4
+        64: 3,  # E4
+        65: 4,  # F4
+        67: 5,  # G4
+        69: 6,  # A4
+        71: 7,  # B4
+        72: 8,  # C5
+    }
+    return note_to_channel_map.get(note_number, -1)  # 該当しない場合は-1を返す
+
 def midi_callback(message, _):
     global moving
     if moving:
         print("Ignoring input, servo is already moving.")
         return
 
-    note_number = message[0][1]
-    note_name = note_number_to_name(note_number)
-    print(f"MIDI Note On received - Note: {note_name}")
-    move_servo()         
+    status, _, note_number = message[0]
+    # Note On(144)のみイベントを流す
+    if status == 144:
+        note_name = note_number_to_name(note_number)
+        print(f"MIDI Note On received - Note: {note_name}")
+        channel = note_to_channel(note_number)
+        if channel != -1 and should_send_signal:
+            move_servo(channel, ORIGIN_ANGLE)
+            move_servo(channel, TARGET_ANGLE)
+            move_servo(channel, START_ANGLE)
+        else:
+            print(f"Note {note_name} is out of the channel mapping range.")
 
 def check_key_press():
     while True:
-        input("Press Enter to move servo: ")  # キー入力の待機
-        if not moving:
-            move_servo()
-        else:
-            print("Ignoring input, servo is already moving.")
+        try:
+            channel = int(input("Enter a channel (0-15): "))
+            if 0 <= channel <= 15:
+                if not moving:
+                    move_servo(channel, ORIGIN_ANGLE)
+                    move_servo(channel, TARGET_ANGLE)
+                    move_servo(channel, START_ANGLE)
+                else:
+                    print("Ignoring input, servo is already moving.")
+            else:
+                print("Please enter a valid channel number between 0 and 15.")
+        except ValueError:
+            print("Please enter a valid channel number between 0 and 15.")
 
 def is_real_midi_device(port_name):
     """実際のMIDIデバイスかどうかを判定する関数"""
-    # ここでは、仮想デバイスやミディスルーデバイスを除外する
     return "Midi Through" not in port_name and "Virtual" not in port_name
 
 def main():
     midi_in = rtmidi.MidiIn()
     ports = midi_in.get_ports()
 
-    # 実際のMIDIデバイスをフィルタリング
     real_midi_ports = [port for port in ports if is_real_midi_device(port)]
 
     if real_midi_ports:  # 実際のMIDIデバイスが存在する場合
         try:
-            # 最初の実際のMIDIデバイスを使用
             selected_port_index = ports.index(real_midi_ports[0])
             print(f"Opening MIDI port: {real_midi_ports[0]}")
             midi_in.open_port(selected_port_index)
@@ -120,10 +146,8 @@ def main():
         except KeyboardInterrupt:
             print("Exiting...")
 
-    if should_move:
-        pwm.stop()
-        GPIO.cleanup()
-        print("GPIO cleanup and program exit.")
+    pca.deinit()
+    print("Program exit.")
 
 if __name__ == "__main__":
     main()
