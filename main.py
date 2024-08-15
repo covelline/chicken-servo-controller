@@ -82,7 +82,7 @@ def midi_callback(message, _):
         print("Ignoring input, servo is already moving.")
         return
 
-    status, _, note_number = message[0]
+    status, note_number, _  = message[0]
     # Note On(144)のみイベントを流す
     if status == 144:
         note_name = note_number_to_name(note_number)
