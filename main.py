@@ -46,9 +46,9 @@ def move_servo(channel, target_angle):
     moving = True
     try:
         print(f"Moving to {target_angle} degrees on channel {channel}")
+        duty_cycle = get_duty_cycle(target_angle)
+        print(f"Duty Cycle: {duty_cycle}, Pulse Width: {get_pulse_width(target_angle)}")
         if should_send_signal:
-            duty_cycle = get_duty_cycle(target_angle)
-            print(f"Duty Cycle: {duty_cycle}, Pulse Width: {get_pulse_width(target_angle)}")
             servo_channels[channel].duty_cycle = duty_cycle
         time.sleep(SLEEP_TIME_MS / 1000)  # ミリ秒を秒に変換
     finally:
@@ -86,9 +86,9 @@ def midi_callback(message, _):
     # Note On(144)のみイベントを流す
     if status == 144:
         note_name = note_number_to_name(note_number)
-        print(f"MIDI Note On received - Note: {note_name}")
+        print(f"MIDI Note On received - Note: {note_name}({note_number})")
         channel = note_to_channel(note_number)
-        if channel != -1 and should_send_signal:
+        if channel != -1:
             move_servo(channel, ORIGIN_ANGLE)
             move_servo(channel, TARGET_ANGLE)
             move_servo(channel, START_ANGLE)
