@@ -17,19 +17,18 @@ ORIGIN_ANGLE = 0  # 原点
 TARGET_ANGLE = 75  # 目標角度
 SLEEP_TIME_MS = 1000  # サーボモーターが指定角度に到達するまでの待機時間 (ミリ秒)
 
-# PCA9685の設定
-i2c = board.I2C()  # uses board.SCL and board.SDA
-pca = PCA9685(i2c)
-pca.frequency = PWM_FREQUENCY
-
-# サーボのチャンネル番号
-servo_channels = [pca.channels[i] for i in range(16)]
-
 # グローバル変数
-moving = False  # サーボモーターが動いているかどうか
 should_send_signal = True  # 実際にサーボを動かすかどうか
 use_target_angle = False  # TARGET_ANGLEを使用するかどうかのフラグ
 lock = threading.Lock()  # ロックオブジェクト
+
+# PCA9685の設定
+if should_send_signal:
+    i2c = board.I2C()  # uses board.SCL and board.SDA
+    pca = PCA9685(i2c)
+    pca.frequency = PWM_FREQUENCY
+    # サーボのチャンネル番号
+    servo_channels = [pca.channels[i] for i in range(16)]
 
 def timestamped_print(*args):
     """現在の時刻を含むメッセージを出力する関数"""
@@ -44,25 +43,24 @@ def get_pulse_width(degree):
 def get_duty_cycle(degree):
     """角度に対応するデューティサイクルを計算する関数"""
     pulse_width = get_pulse_width(degree)
-    duty_cycle = int((pulse_width / 1000000) * pca.frequency * 65535)
+    duty_cycle = int((pulse_width / 1000000) * PWM_FREQUENCY * 65535)
     return duty_cycle
 
 def move_servo(channel, target_angle):
     """サーボモーターを指定の角度に動かす関数"""
     duty_cycle = get_duty_cycle(target_angle)
-    timestamped_print(f"Moving to {target_angle} degrees on channel {channel}")
-    timestamped_print(f"Duty Cycle: {duty_cycle}, Pulse Width: {get_pulse_width(target_angle)}")
+    timestamped_print(f"Moving to {target_angle:<3}° on channel {channel} (Duty Cycle: {duty_cycle}, Pulse Width: {get_pulse_width(target_angle)})")
     if should_send_signal:
         servo_channels[channel].duty_cycle = duty_cycle
 
 def perform_servo_movement(channel):
     """サーボモーターを一連の動作に従って動かす関数"""
-    global moving
-    with lock:  # ロックを獲得
-        if moving:
-            timestamped_print("Already moving, ignoring input.")
-            return
-        moving = True
+    # ロックを非ブロッキングで取得し、失敗したら即座に終了
+    acquired = lock.acquire(blocking=False)
+    if not acquired:
+        timestamped_print("Lock is already acquired, ignoring this call.")
+        return
+
     try:
         move_servo(channel, ORIGIN_ANGLE)
         time.sleep(SLEEP_TIME_MS / 1000)
@@ -70,11 +68,11 @@ def perform_servo_movement(channel):
             move_servo(channel, TARGET_ANGLE)
             time.sleep(SLEEP_TIME_MS / 1000)
         move_servo(channel, START_ANGLE)
+    except Exception as e:
+        timestamped_print(f"An error occurred: {str(e)}")
     finally:
-        with lock:
-            moving = False  # 動作終了後にフラグをリセット
-            timestamped_print("End.")
-
+        lock.release()  # ロックを解放
+        timestamped_print("End.")
 
 def note_number_to_name(note_number):
     """ノート番号を音名に変換する関数"""
@@ -171,7 +169,8 @@ def main():
         except KeyboardInterrupt:
             timestamped_print("Exiting...")
 
-    pca.deinit()
+    if should_send_signal:
+        pca.deinit()
     timestamped_print("Program exit.")
 
 if __name__ == "__main__":
