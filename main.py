@@ -1,5 +1,6 @@
 import atexit
 import datetime
+import os
 import time
 import board
 import rtmidi
@@ -20,8 +21,10 @@ ANGLE_RANGE = 180  # サーボモーターの角度範囲
 START_ANGLE = 45  # スタート位置の角度
 ORIGIN_ANGLE = 0  # 原点(チキンが鳴る位置)
 TARGET_ANGLE = 75  # リセットするために引っ張るための角度
-SLEEP_TIME_MS = 500  # サーボモーターが指定角度に到達するまでの待機時間 (ミリ秒)
-MAX_CONCURRENT_TASKS = 3  # 同時に実行可能なタスク数
+# 200がいい感じだった。これより早くすると押す前に戻ってしまう。0にすると動かなかったので注意
+SLEEP_TIME_MS = 200  # サーボモーターが指定角度に到達するまでの待機時間 (ミリ秒)
+# MAX_CONCURRENT_TASKSのデフォルト値は3、環境変数が設定されていればその値を使用
+MAX_CONCURRENT_TASKS = int(os.getenv('MAX_CONCURRENT_TASKS', 3))
 
 # グローバル変数
 should_send_signal = True  # 実際にサーボを動かすかどうか
