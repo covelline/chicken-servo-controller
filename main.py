@@ -1,3 +1,4 @@
+import datetime
 import time
 import board
 import rtmidi
@@ -27,7 +28,13 @@ servo_channels = [pca.channels[i] for i in range(16)]
 # グローバル変数
 moving = False  # サーボモーターが動いているかどうか
 should_send_signal = True  # 実際にサーボを動かすかどうか
+use_target_angle = False  # TARGET_ANGLEを使用するかどうかのフラグ
 lock = threading.Lock()  # ロックオブジェクト
+
+def timestamped_print(*args):
+    """現在の時刻を含むメッセージを出力する関数"""
+    current_time = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
+    print(f"[{current_time}]", *args)
 
 def get_pulse_width(degree):
     """角度に対応するパルス幅を計算する関数"""
@@ -43,27 +50,31 @@ def get_duty_cycle(degree):
 def move_servo(channel, target_angle):
     """サーボモーターを指定の角度に動かす関数"""
     duty_cycle = get_duty_cycle(target_angle)
-    print(f"Moving to {target_angle} degrees on channel {channel}")
-    print(f"Duty Cycle: {duty_cycle}, Pulse Width: {get_pulse_width(target_angle)}")
+    timestamped_print(f"Moving to {target_angle} degrees on channel {channel}")
+    timestamped_print(f"Duty Cycle: {duty_cycle}, Pulse Width: {get_pulse_width(target_angle)}")
     if should_send_signal:
         servo_channels[channel].duty_cycle = duty_cycle
-    time.sleep(SLEEP_TIME_MS / 1000)  # ミリ秒を秒に変換
 
 def perform_servo_movement(channel):
     """サーボモーターを一連の動作に従って動かす関数"""
     global moving
     with lock:  # ロックを獲得
         if moving:
-            print("Already moving, ignoring input.")
+            timestamped_print("Already moving, ignoring input.")
             return
         moving = True
     try:
         move_servo(channel, ORIGIN_ANGLE)
-        move_servo(channel, TARGET_ANGLE)
+        time.sleep(SLEEP_TIME_MS / 1000)
+        if use_target_angle:
+            move_servo(channel, TARGET_ANGLE)
+            time.sleep(SLEEP_TIME_MS / 1000)
         move_servo(channel, START_ANGLE)
     finally:
         with lock:
             moving = False  # 動作終了後にフラグをリセット
+            timestamped_print("End.")
+
 
 def note_number_to_name(note_number):
     """ノート番号を音名に変換する関数"""
@@ -93,25 +104,36 @@ def midi_callback(message, _):
     # Note On(144)のみイベントを流す
     if status == 144:
         note_name = note_number_to_name(note_number)
-        print("---------------------------------------------------")
-        print(f"MIDI Note On received - Note: {note_name}({note_number})")
+        timestamped_print("---------------------------------------------------")
+        timestamped_print(f"MIDI Note On received - Note: {note_name}({note_number})")
         channel = note_to_channel(note_number)
         if channel != -1:
             perform_servo_movement(channel)
         else:
-            print(f"Note {note_name} is out of the channel mapping range.")
+            timestamped_print(f"Note {note_name} is out of the channel mapping range.")
+
+def toggle_movement_mode():
+    """TARGET_ANGLEとSTART_ANGLEのどちらを使うかを切り替える関数"""
+    global use_target_angle
+    use_target_angle = not use_target_angle
+    mode = "TARGET_ANGLE" if use_target_angle else "START_ANGLE"
+    timestamped_print(f"Movement mode switched to: {mode}")
 
 def check_key_press():
     """キーボード入力を処理する関数"""
     while True:
         try:
-            channel = int(input("Enter a channel (0-15): "))
-            if 0 <= channel <= 15:
-                perform_servo_movement(channel)
+            command = input("Enter a channel (0-15) or 't' to toggle mode: ")
+            if command.lower() == 't':
+                toggle_movement_mode()
             else:
-                print("Please enter a valid channel number between 0 and 15.")
+                channel = int(command)
+                if 0 <= channel <= 15:
+                    perform_servo_movement(channel)
+                else:
+                    timestamped_print("Please enter a valid channel number between 0 and 15.")
         except ValueError:
-            print("Please enter a valid channel number between 0 and 15.")
+            timestamped_print("Please enter a valid channel number between 0 and 15.")
 
 def is_real_midi_device(port_name):
     """実際のMIDIデバイスかどうかを判定する関数"""
@@ -126,31 +148,31 @@ def main():
     if real_midi_ports:  # 実際のMIDIデバイスが存在する場合
         try:
             selected_port_index = ports.index(real_midi_ports[0])
-            print(f"Opening MIDI port: {real_midi_ports[0]}")
+            timestamped_print(f"Opening MIDI port: {real_midi_ports[0]}")
             midi_in.open_port(selected_port_index)
             midi_in.set_callback(midi_callback)
-            print("Listening for MIDI input... Press Ctrl+C to exit.")
-            print()
+            timestamped_print("Listening for MIDI input... Press Ctrl+C to exit.")
+            timestamped_print()
             try:
                 while True:
                     time.sleep(1)  # MIDI入力待ち
             except KeyboardInterrupt:
-                print("Exiting...")
+                timestamped_print("Exiting...")
             finally:
                 midi_in.close_port()
         except (rtmidi.InvalidPortError, IndexError) as e:
-            print(f"Error opening MIDI port: {e}")
-            print("No real MIDI input ports available. Switching to keyboard input.")
+            timestamped_print(f"Error opening MIDI port: {e}")
+            timestamped_print("No real MIDI input ports available. Switching to keyboard input.")
             check_key_press()  # キーボード入力モード
     else:  # 実際のMIDIデバイスが存在しない場合
-        print("No real MIDI input ports available. Switching to keyboard input.")
+        timestamped_print("No real MIDI input ports available. Switching to keyboard input.")
         try:
             check_key_press()  # キーボード入力モード
         except KeyboardInterrupt:
-            print("Exiting...")
+            timestamped_print("Exiting...")
 
     pca.deinit()
-    print("Program exit.")
+    timestamped_print("Program exit.")
 
 if __name__ == "__main__":
     main()
