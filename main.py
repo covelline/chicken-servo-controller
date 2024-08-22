@@ -16,19 +16,16 @@ PWM_FREQUENCY = 50  # PWM信号の周波数 (Hz)
 MIN_PULSE_WIDTH = 500  # 最小パルス幅 (µs)
 MAX_PULSE_WIDTH = 2500  # 最大パルス幅 (µs)
 ANGLE_RANGE = 180  # サーボモーターの角度範囲
-# サーボモータの取り付けた方向の関係により0度→180度がチキンを押す方向と逆なので
-# スタート位置を45度として0度で鳴るように調整している
 START_ANGLE = 45  # スタート位置の角度
 ORIGIN_ANGLE = 0  # 原点(チキンが鳴る位置)
 TARGET_ANGLE = 75  # リセットするために引っ張るための角度
-# 200がいい感じだった。これより早くすると押す前に戻ってしまう。0にすると動かなかったので注意
 SLEEP_TIME_MS = 200  # サーボモーターが指定角度に到達するまでの待機時間 (ミリ秒)
-# MAX_CONCURRENT_TASKSのデフォルト値は3、環境変数が設定されていればその値を使用
 MAX_CONCURRENT_TASKS = int(os.getenv('MAX_CONCURRENT_TASKS', 3))
 
 # グローバル変数
 should_send_signal = True  # 実際にサーボを動かすかどうか
 use_target_angle = False  # TARGET_ANGLEを使用するかどうかのフラグ
+in_calibration_mode = False  # キャリブレーションモードのフラグ
 semaphore = threading.Semaphore(MAX_CONCURRENT_TASKS)  # セマフォの初期化
 
 # PCA9685の設定
@@ -113,6 +110,10 @@ def note_to_channel(note_number):
 
 def midi_callback(message, _):
     """MIDI入力を処理するコールバック関数"""
+    if in_calibration_mode:
+        timestamped_print("MIDI input ignored during calibration mode.", error=True)
+        return
+
     status, note_number, _ = message[0]
     # Note On(144)のみイベントを流す
     if status == 144:
@@ -133,13 +134,32 @@ def toggle_movement_mode():
     mode = "TARGET_ANGLE" if use_target_angle else "START_ANGLE"
     timestamped_print(f"Movement mode switched to: {mode}")
 
+def calibrate_servos():
+    """全チャンネルのサーボをキャリブレーションする関数"""
+    global in_calibration_mode
+    in_calibration_mode = True
+    timestamped_print("Calibration mode activated. MIDI input will be ignored.")
+
+    for channel in range(9):  # 0から8のチャンネルに対して動作
+        timestamped_print(f"Calibrating channel {channel}")
+        move_servo(channel, ORIGIN_ANGLE)
+        time.sleep(SLEEP_TIME_MS / 1000)
+        move_servo(channel, TARGET_ANGLE)
+        time.sleep(SLEEP_TIME_MS / 1000)
+        move_servo(channel, START_ANGLE)
+
+    timestamped_print("Calibration mode deactivated.")
+    in_calibration_mode = False
+
 def check_key_press():
     """キーボード入力を処理する関数"""
     while True:
         try:
-            command = input("Enter a channel (0-15) or 't' to toggle mode: ")
+            command = input("Enter a channel (0-15), 't' to toggle mode, or 'c' for calibration: ")
             if command.lower() == 't':
                 toggle_movement_mode()
+            elif command.lower() == 'c':
+                calibrate_servos()
             else:
                 channel = int(command)
                 if 0 <= channel <= 15:
@@ -167,24 +187,20 @@ def main():
             midi_in.open_port(selected_port_index)
             midi_in.set_callback(midi_callback)
             timestamped_print("Listening for MIDI input... Press Ctrl+C to exit.")
-            timestamped_print()
-            try:
-                while True:
-                    time.sleep(1)  # MIDI入力待ち
-            except KeyboardInterrupt:
-                timestamped_print("Exiting...")
-            finally:
-                midi_in.close_port()
         except (rtmidi.InvalidPortError, IndexError) as e:
             timestamped_print(f"Error opening MIDI port: {e}", error=True)
-            timestamped_print("No real MIDI input ports available. Switching to keyboard input.")
-            check_key_press()  # キーボード入力モード
-    else:  # 実際のMIDIデバイスが存在しない場合
-        timestamped_print("No real MIDI input ports available. Switching to keyboard input.")
-        try:
-            check_key_press()  # キーボード入力モード
-        except KeyboardInterrupt:
-            timestamped_print("Exiting...")
+            timestamped_print("No real MIDI input ports available. Switching to keyboard input only.")
+    
+    # キーボード入力のスレッドを常に起動
+    keyboard_thread = threading.Thread(target=check_key_press)
+    keyboard_thread.daemon = True
+    keyboard_thread.start()
+
+    try:
+        while True:
+            time.sleep(1)  # メインスレッドを生かしておく
+    except KeyboardInterrupt:
+        timestamped_print("Exiting...")
 
     if should_send_signal:
         pca.deinit()
