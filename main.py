@@ -2,6 +2,7 @@ import time
 import board
 import rtmidi
 from adafruit_pca9685 import PCA9685
+import threading
 
 # 定数の定義
 PWM_FREQUENCY = 50  # PWM信号の周波数 (Hz)
@@ -26,6 +27,7 @@ servo_channels = [pca.channels[i] for i in range(16)]
 # グローバル変数
 moving = False  # サーボモーターが動いているかどうか
 should_send_signal = True  # 実際にサーボを動かすかどうか
+lock = threading.Lock()  # ロックオブジェクト
 
 def get_pulse_width(degree):
     """角度に対応するパルス幅を計算する関数"""
@@ -39,20 +41,29 @@ def get_duty_cycle(degree):
     return duty_cycle
 
 def move_servo(channel, target_angle):
+    """サーボモーターを指定の角度に動かす関数"""
+    duty_cycle = get_duty_cycle(target_angle)
+    print(f"Moving to {target_angle} degrees on channel {channel}")
+    print(f"Duty Cycle: {duty_cycle}, Pulse Width: {get_pulse_width(target_angle)}")
+    if should_send_signal:
+        servo_channels[channel].duty_cycle = duty_cycle
+    time.sleep(SLEEP_TIME_MS / 1000)  # ミリ秒を秒に変換
+
+def perform_servo_movement(channel):
+    """サーボモーターを一連の動作に従って動かす関数"""
     global moving
-    if moving:
-        print("Already moving, ignoring input.")
-        return
-    moving = True
+    with lock:  # ロックを獲得
+        if moving:
+            print("Already moving, ignoring input.")
+            return
+        moving = True
     try:
-        print(f"Moving to {target_angle} degrees on channel {channel}")
-        duty_cycle = get_duty_cycle(target_angle)
-        print(f"Duty Cycle: {duty_cycle}, Pulse Width: {get_pulse_width(target_angle)}")
-        if should_send_signal:
-            servo_channels[channel].duty_cycle = duty_cycle
-        time.sleep(SLEEP_TIME_MS / 1000)  # ミリ秒を秒に変換
+        move_servo(channel, ORIGIN_ANGLE)
+        move_servo(channel, TARGET_ANGLE)
+        move_servo(channel, START_ANGLE)
     finally:
-        moving = False  # 動作終了後にフラグをリセット
+        with lock:
+            moving = False  # 動作終了後にフラグをリセット
 
 def note_number_to_name(note_number):
     """ノート番号を音名に変換する関数"""
@@ -77,35 +88,26 @@ def note_to_channel(note_number):
     return note_to_channel_map.get(note_number, -1)  # 該当しない場合は-1を返す
 
 def midi_callback(message, _):
-    global moving
-    if moving:
-        print("Ignoring input, servo is already moving.")
-        return
-
-    status, note_number, _  = message[0]
+    """MIDI入力を処理するコールバック関数"""
+    status, note_number, _ = message[0]
     # Note On(144)のみイベントを流す
     if status == 144:
         note_name = note_number_to_name(note_number)
+        print("---------------------------------------------------")
         print(f"MIDI Note On received - Note: {note_name}({note_number})")
         channel = note_to_channel(note_number)
         if channel != -1:
-            move_servo(channel, ORIGIN_ANGLE)
-            move_servo(channel, TARGET_ANGLE)
-            move_servo(channel, START_ANGLE)
+            perform_servo_movement(channel)
         else:
             print(f"Note {note_name} is out of the channel mapping range.")
 
 def check_key_press():
+    """キーボード入力を処理する関数"""
     while True:
         try:
             channel = int(input("Enter a channel (0-15): "))
             if 0 <= channel <= 15:
-                if not moving:
-                    move_servo(channel, ORIGIN_ANGLE)
-                    move_servo(channel, TARGET_ANGLE)
-                    move_servo(channel, START_ANGLE)
-                else:
-                    print("Ignoring input, servo is already moving.")
+                perform_servo_movement(channel)
             else:
                 print("Please enter a valid channel number between 0 and 15.")
         except ValueError:
@@ -128,6 +130,7 @@ def main():
             midi_in.open_port(selected_port_index)
             midi_in.set_callback(midi_callback)
             print("Listening for MIDI input... Press Ctrl+C to exit.")
+            print()
             try:
                 while True:
                     time.sleep(1)  # MIDI入力待ち
