@@ -8,6 +8,7 @@ adafruit-circuitpython-typing==1.10.3
 Adafruit-PlatformDetect==3.72.1
 Adafruit-PureIO==1.1.11
 binho-host-adapter==0.1.6
+colorama==0.4.6
 pyftdi==0.55.4
 pyserial==3.5
 python-rtmidi==1.5.8

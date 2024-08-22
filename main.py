@@ -6,6 +6,10 @@ import rtmidi
 from adafruit_pca9685 import PCA9685
 import threading
 import queue
+from colorama import Fore, Style, init
+
+# coloramaの初期化
+init(autoreset=True)
 
 # 定数の定義
 PWM_FREQUENCY = 50  # PWM信号の周波数 (Hz)
@@ -22,12 +26,16 @@ SLEEP_TIME_MS = 500  # サーボモーターが指定角度に到達するまで
 # グローバル変数
 should_send_signal = True  # 実際にサーボを動かすかどうか
 use_target_angle = False  # TARGET_ANGLEを使用するかどうかのフラグ
-task_queue = queue.Queue(maxsize=1) # 最大数の制御に利用
+task_queue = queue.Queue(maxsize=1)  # 最大数の制御に利用
 
-def timestamped_print(*args):
+def timestamped_print(*args, error=False):
     """現在の時刻を含むメッセージを出力する関数"""
     current_time = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
-    print(f"[{current_time}]", *args)
+    message = f"[{current_time}] {' '.join(map(str, args))}"
+    if error:
+        print(Fore.RED + message)  # エラーメッセージは赤色で表示
+    else:
+        print(message)
 
 # ワーカースレッドを開始
 def worker():
@@ -38,7 +46,6 @@ def worker():
             break  # キューに None が入れられたらスレッドを終了
         perform_servo_movement(channel)
         task_queue.task_done()
-
 
 worker_thread = threading.Thread(target=worker)
 worker_thread.daemon = True
@@ -80,7 +87,7 @@ def perform_servo_movement(channel):
             time.sleep(SLEEP_TIME_MS / 1000)
         move_servo(channel, START_ANGLE)
     except Exception as e:
-        timestamped_print(f"An error occurred: {str(e)}")
+        timestamped_print(f"An error occurred: {str(e)}", error=True)
     finally:
         timestamped_print("End.")
 
@@ -117,11 +124,11 @@ def midi_callback(message, _):
         channel = note_to_channel(note_number)
         if channel != -1:
             if task_queue.full():
-                timestamped_print("Task queue is full, ignoring this call.")
+                timestamped_print("Task queue is full, ignoring this call.", error=True)
             else:
                 task_queue.put(channel)
         else:
-            timestamped_print(f"Note {note_name} is out of the channel mapping range.")
+            timestamped_print(f"Note {note_name} is out of the channel mapping range.", error=True)
 
 def toggle_movement_mode():
     """TARGET_ANGLEとSTART_ANGLEのどちらを使うかを切り替える関数"""
@@ -145,9 +152,9 @@ def check_key_press():
                     else:
                         task_queue.put(channel)
                 else:
-                    timestamped_print("Please enter a valid channel number between 0 and 15.")
+                    timestamped_print("Please enter a valid channel number between 0 and 15.", error=True)
         except ValueError:
-            timestamped_print("Please enter a valid channel number between 0 and 15.")
+            timestamped_print("Please enter a valid channel number between 0 and 15.", error=True)
 
 def is_real_midi_device(port_name):
     """実際のMIDIデバイスかどうかを判定する関数"""
@@ -175,7 +182,7 @@ def main():
             finally:
                 midi_in.close_port()
         except (rtmidi.InvalidPortError, IndexError) as e:
-            timestamped_print(f"Error opening MIDI port: {e}")
+            timestamped_print(f"Error opening MIDI port: {e}", error=True)
             timestamped_print("No real MIDI input ports available. Switching to keyboard input.")
             check_key_press()  # キーボード入力モード
     else:  # 実際のMIDIデバイスが存在しない場合
