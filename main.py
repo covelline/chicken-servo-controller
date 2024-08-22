@@ -148,7 +148,7 @@ def check_key_press():
                 channel = int(command)
                 if 0 <= channel <= 15:
                     if task_queue.full():
-                        timestamped_print("Task queue is full, ignoring this call.")
+                        timestamped_print("Task queue is full, ignoring this call.", error=True)
                     else:
                         task_queue.put(channel)
                 else:
