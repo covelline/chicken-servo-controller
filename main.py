@@ -1,9 +1,11 @@
+import atexit
 import datetime
 import time
 import board
 import rtmidi
 from adafruit_pca9685 import PCA9685
 import threading
+import queue
 
 # 定数の定義
 PWM_FREQUENCY = 50  # PWM信号の周波数 (Hz)
@@ -11,16 +13,36 @@ MIN_PULSE_WIDTH = 500  # 最小パルス幅 (µs)
 MAX_PULSE_WIDTH = 2500  # 最大パルス幅 (µs)
 ANGLE_RANGE = 180  # サーボモーターの角度範囲
 # サーボモータの取り付けた方向の関係により0度→180度がチキンを押す方向と逆なので
-# スタート位置を45度として0度でなるように調整している
+# スタート位置を45度として0度で鳴るように調整している
 START_ANGLE = 45  # スタート位置の角度
-ORIGIN_ANGLE = 0  # 原点
-TARGET_ANGLE = 75  # 目標角度
-SLEEP_TIME_MS = 1000  # サーボモーターが指定角度に到達するまでの待機時間 (ミリ秒)
+ORIGIN_ANGLE = 0  # 原点(チキンが鳴る位置)
+TARGET_ANGLE = 75  # リセットするために引っ張るための角度
+SLEEP_TIME_MS = 500  # サーボモーターが指定角度に到達するまでの待機時間 (ミリ秒)
 
 # グローバル変数
 should_send_signal = True  # 実際にサーボを動かすかどうか
 use_target_angle = False  # TARGET_ANGLEを使用するかどうかのフラグ
-lock = threading.Lock()  # ロックオブジェクト
+task_queue = queue.Queue(maxsize=1) # 最大数の制御に利用
+
+def timestamped_print(*args):
+    """現在の時刻を含むメッセージを出力する関数"""
+    current_time = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
+    print(f"[{current_time}]", *args)
+
+# ワーカースレッドを開始
+def worker():
+    """キューからタスクを取り出して実行するワーカースレッド"""
+    while True:
+        channel = task_queue.get()
+        if channel is None:
+            break  # キューに None が入れられたらスレッドを終了
+        perform_servo_movement(channel)
+        task_queue.task_done()
+
+
+worker_thread = threading.Thread(target=worker)
+worker_thread.daemon = True
+worker_thread.start()
 
 # PCA9685の設定
 if should_send_signal:
@@ -29,11 +51,6 @@ if should_send_signal:
     pca.frequency = PWM_FREQUENCY
     # サーボのチャンネル番号
     servo_channels = [pca.channels[i] for i in range(16)]
-
-def timestamped_print(*args):
-    """現在の時刻を含むメッセージを出力する関数"""
-    current_time = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
-    print(f"[{current_time}]", *args)
 
 def get_pulse_width(degree):
     """角度に対応するパルス幅を計算する関数"""
@@ -49,18 +66,12 @@ def get_duty_cycle(degree):
 def move_servo(channel, target_angle):
     """サーボモーターを指定の角度に動かす関数"""
     duty_cycle = get_duty_cycle(target_angle)
-    timestamped_print(f"Moving to {target_angle:<3}° on channel {channel} (Duty Cycle: {duty_cycle}, Pulse Width: {get_pulse_width(target_angle)})")
+    timestamped_print(f"Moving to {target_angle:>3}° on channel {channel} (Duty Cycle: {duty_cycle}, Pulse Width: {get_pulse_width(target_angle)})")
     if should_send_signal:
         servo_channels[channel].duty_cycle = duty_cycle
 
 def perform_servo_movement(channel):
     """サーボモーターを一連の動作に従って動かす関数"""
-    # ロックを非ブロッキングで取得し、失敗したら即座に終了
-    acquired = lock.acquire(blocking=False)
-    if not acquired:
-        timestamped_print("Lock is already acquired, ignoring this call.")
-        return
-
     try:
         move_servo(channel, ORIGIN_ANGLE)
         time.sleep(SLEEP_TIME_MS / 1000)
@@ -71,7 +82,6 @@ def perform_servo_movement(channel):
     except Exception as e:
         timestamped_print(f"An error occurred: {str(e)}")
     finally:
-        lock.release()  # ロックを解放
         timestamped_print("End.")
 
 def note_number_to_name(note_number):
@@ -106,7 +116,10 @@ def midi_callback(message, _):
         timestamped_print(f"MIDI Note On received - Note: {note_name}({note_number})")
         channel = note_to_channel(note_number)
         if channel != -1:
-            perform_servo_movement(channel)
+            if task_queue.full():
+                timestamped_print("Task queue is full, ignoring this call.")
+            else:
+                task_queue.put(channel)
         else:
             timestamped_print(f"Note {note_name} is out of the channel mapping range.")
 
@@ -127,7 +140,10 @@ def check_key_press():
             else:
                 channel = int(command)
                 if 0 <= channel <= 15:
-                    perform_servo_movement(channel)
+                    if task_queue.full():
+                        timestamped_print("Task queue is full, ignoring this call.")
+                    else:
+                        task_queue.put(channel)
                 else:
                     timestamped_print("Please enter a valid channel number between 0 and 15.")
         except ValueError:
@@ -172,6 +188,14 @@ def main():
     if should_send_signal:
         pca.deinit()
     timestamped_print("Program exit.")
+
+def shutdown_worker():
+    """ワーカースレッドを終了させるための関数"""
+    task_queue.put(None)  # ワーカースレッドに終了を伝えるために None を送る
+    worker_thread.join()
+
+# プログラム終了時にワーカースレッドを停止
+atexit.register(shutdown_worker)
 
 if __name__ == "__main__":
     main()
