@@ -5,7 +5,6 @@ import board
 import rtmidi
 from adafruit_pca9685 import PCA9685
 import threading
-import queue
 from colorama import Fore, Style, init
 
 # coloramaの初期化
@@ -22,11 +21,19 @@ START_ANGLE = 45  # スタート位置の角度
 ORIGIN_ANGLE = 0  # 原点(チキンが鳴る位置)
 TARGET_ANGLE = 75  # リセットするために引っ張るための角度
 SLEEP_TIME_MS = 500  # サーボモーターが指定角度に到達するまでの待機時間 (ミリ秒)
+MAX_CONCURRENT_TASKS = 3  # 同時に実行可能なタスク数
 
 # グローバル変数
 should_send_signal = True  # 実際にサーボを動かすかどうか
 use_target_angle = False  # TARGET_ANGLEを使用するかどうかのフラグ
-task_queue = queue.Queue(maxsize=1)  # 最大数の制御に利用
+semaphore = threading.Semaphore(MAX_CONCURRENT_TASKS)  # セマフォの初期化
+
+# PCA9685の設定
+if should_send_signal:
+    i2c = board.I2C()  # uses board.SCL and board.SDA
+    pca = PCA9685(i2c)
+    pca.frequency = PWM_FREQUENCY
+    servo_channels = [pca.channels[i] for i in range(16)]
 
 def timestamped_print(*args, error=False):
     """現在の時刻を含むメッセージを出力する関数"""
@@ -37,27 +44,15 @@ def timestamped_print(*args, error=False):
     else:
         print(message)
 
-# ワーカースレッドを開始
-def worker():
-    """キューからタスクを取り出して実行するワーカースレッド"""
-    while True:
-        channel = task_queue.get()
-        if channel is None:
-            break  # キューに None が入れられたらスレッドを終了
+def worker(channel):
+    """セマフォで制御されたワーカースレッド"""
+    if not semaphore.acquire(blocking=False):
+        timestamped_print("Max concurrent tasks reached, ignoring this call.", error=True)
+        return
+    try:
         perform_servo_movement(channel)
-        task_queue.task_done()
-
-worker_thread = threading.Thread(target=worker)
-worker_thread.daemon = True
-worker_thread.start()
-
-# PCA9685の設定
-if should_send_signal:
-    i2c = board.I2C()  # uses board.SCL and board.SDA
-    pca = PCA9685(i2c)
-    pca.frequency = PWM_FREQUENCY
-    # サーボのチャンネル番号
-    servo_channels = [pca.channels[i] for i in range(16)]
+    finally:
+        semaphore.release()
 
 def get_pulse_width(degree):
     """角度に対応するパルス幅を計算する関数"""
@@ -123,10 +118,8 @@ def midi_callback(message, _):
         timestamped_print(f"MIDI Note On received - Note: {note_name}({note_number})")
         channel = note_to_channel(note_number)
         if channel != -1:
-            if task_queue.full():
-                timestamped_print("Task queue is full, ignoring this call.", error=True)
-            else:
-                task_queue.put(channel)
+            worker_thread = threading.Thread(target=worker, args=(channel,))
+            worker_thread.start()
         else:
             timestamped_print(f"Note {note_name} is out of the channel mapping range.", error=True)
 
@@ -147,10 +140,8 @@ def check_key_press():
             else:
                 channel = int(command)
                 if 0 <= channel <= 15:
-                    if task_queue.full():
-                        timestamped_print("Task queue is full, ignoring this call.", error=True)
-                    else:
-                        task_queue.put(channel)
+                    worker_thread = threading.Thread(target=worker, args=(channel,))
+                    worker_thread.start()
                 else:
                     timestamped_print("Please enter a valid channel number between 0 and 15.", error=True)
         except ValueError:
@@ -198,8 +189,9 @@ def main():
 
 def shutdown_worker():
     """ワーカースレッドを終了させるための関数"""
-    task_queue.put(None)  # ワーカースレッドに終了を伝えるために None を送る
-    worker_thread.join()
+    # セマフォをリリースするために空のタスクを実行させる
+    for _ in range(MAX_CONCURRENT_TASKS):
+        semaphore.release()
 
 # プログラム終了時にワーカースレッドを停止
 atexit.register(shutdown_worker)
