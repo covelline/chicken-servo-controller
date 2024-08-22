@@ -27,7 +27,6 @@ SLEEP_TIME_MS = 500  # サーボモーターが指定角度に到達するまで
 should_send_signal = True  # 実際にサーボを動かすかどうか
 use_target_angle = False  # TARGET_ANGLEを使用するかどうかのフラグ
 task_queue = queue.Queue(maxsize=1)  # 最大数の制御に利用
-task_in_progress = False  # 現在タスクが実行中かどうかを示すフラグ
 
 def timestamped_print(*args, error=False):
     """現在の時刻を含むメッセージを出力する関数"""
@@ -41,15 +40,12 @@ def timestamped_print(*args, error=False):
 # ワーカースレッドを開始
 def worker():
     """キューからタスクを取り出して実行するワーカースレッド"""
-    global task_in_progress
     while True:
         channel = task_queue.get()
         if channel is None:
             break  # キューに None が入れられたらスレッドを終了
-        task_in_progress = True
         perform_servo_movement(channel)
         task_queue.task_done()
-        task_in_progress = False
 
 worker_thread = threading.Thread(target=worker)
 worker_thread.daemon = True
@@ -127,7 +123,7 @@ def midi_callback(message, _):
         timestamped_print(f"MIDI Note On received - Note: {note_name}({note_number})")
         channel = note_to_channel(note_number)
         if channel != -1:
-            if task_in_progress:
+            if task_queue.full():
                 timestamped_print("Task queue is full, ignoring this call.", error=True)
             else:
                 task_queue.put(channel)
@@ -151,8 +147,8 @@ def check_key_press():
             else:
                 channel = int(command)
                 if 0 <= channel <= 15:
-                    if task_in_progress:
-                        timestamped_print("Task queue is full, ignoring this call.", error=True)
+                    if task_queue.full():
+                        timestamped_print("Task queue is full, ignoring this call.")
                     else:
                         task_queue.put(channel)
                 else:
