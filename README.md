@@ -1,23 +1,5 @@
 # 概要
 
-# セットアップ
-
-- python3
-
-```sh
-# 一応仮想環境作成
-python -m venv venv
-source venv/bin/activate
-# 抜ける時は
-deactivate
-```
-
-pip
-
-```
-pip install -r requirements.txt
-```
-
 # ラズパイへの接続
 
 以下の接続情報を使う
@@ -49,3 +31,6 @@ macで開発してラズパイにコードを送っている
 ./send_raspberypi.sh
 ```
 
+# 使い方
+
+[ここを参照](./doc/howtouse.md)

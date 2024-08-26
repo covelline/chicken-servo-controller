@@ -11,6 +11,11 @@ from colorama import Fore, Style, init
 # coloramaの初期化
 init(autoreset=True)
 
+# 調整でさわりそうな変数
+TARGET_ANGLE = 75  # リセットするために引っ張るための角度
+SLEEP_TIME_MS = 200  # サーボモーターが指定角度に到達するまでの待機時間 (ミリ秒)
+MAX_CONCURRENT_TASKS = int(os.getenv('MAX_CONCURRENT_TASKS', 3)) #同時に動かせる数、デフォルトは3
+
 # 定数の定義
 PWM_FREQUENCY = 50  # PWM信号の周波数 (Hz)
 MIN_PULSE_WIDTH = 500  # 最小パルス幅 (µs)
@@ -18,14 +23,10 @@ MAX_PULSE_WIDTH = 2500  # 最大パルス幅 (µs)
 ANGLE_RANGE = 180  # サーボモーターの角度範囲
 START_ANGLE = 45  # スタート位置の角度
 ORIGIN_ANGLE = 0  # 原点(チキンが鳴る位置)
-TARGET_ANGLE = 75  # リセットするために引っ張るための角度
-SLEEP_TIME_MS = 200  # サーボモーターが指定角度に到達するまでの待機時間 (ミリ秒)
-MAX_CONCURRENT_TASKS = int(os.getenv('MAX_CONCURRENT_TASKS', 3))
 
-# グローバル変数
 should_send_signal = True  # 実際にサーボを動かすかどうか
-use_target_angle = False  # TARGET_ANGLEを使用するかどうかのフラグ
 in_calibration_mode = False  # キャリブレーションモードのフラグ
+use_target_angle = False  # TARGET_ANGLEを使用するかどうかのフラグ
 semaphore = threading.Semaphore(MAX_CONCURRENT_TASKS)  # セマフォの初期化
 
 # PCA9685の設定
