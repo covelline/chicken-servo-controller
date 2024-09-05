@@ -15,7 +15,7 @@
 # sshの設定方法はREADME参照
 ssh raspberrypi@chicken-raspberrypi.local
 # ここからラズパイ側
-# 自動起動しているラズパイを止める
+# 自動起動しているプログラムを止める
 sudo systemctl stop chicken.service
 # 移動
 cd src/chicken-servo-controller
@@ -23,6 +23,8 @@ cd src/chicken-servo-controller
 # ちなみにデフォルトは同時に鳴らせるのは3音になっているが増やしたい場合は
 # ./start.sh --max-tasks 4
 # のように起動することもできる(多くしすぎると電力が足らなくなるので注意)
+# ctrl + cで終わらせたあと再びプログラムを動かすためにラズパイを再起動する
+sudo reboot
 ```
 
 個人的にはvscodeのリモートエクステンションを使うのがおすすめ<br>
