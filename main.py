@@ -165,15 +165,33 @@ def calibrate_servos():
     timestamped_print("Calibration mode deactivated.")
     in_calibration_mode = False
 
+def calibrate_servos_stop():
+    """全チャンネルのサーボをキャリブレーションする関数"""
+    global in_calibration_mode
+    in_calibration_mode = True
+    timestamped_print("Calibration mode activated. MIDI input will be ignored.")
+
+    for channel in range(9):  # 0から8のチャンネルに対して動作
+        timestamped_print(f"Calibrating channel {channel}")
+        move_servo(channel, ORIGIN_ANGLE)
+        time.sleep(SLEEP_TIME_MS / 1000)
+        move_servo(channel, TARGET_ANGLE)
+        time.sleep(SLEEP_TIME_MS / 1000)
+
+    timestamped_print("Calibration mode deactivated.")
+    in_calibration_mode = False
+
 def check_key_press():
     """キーボード入力を処理する関数"""
     while True:
         try:
-            command = input("Enter a channel (0-15), 't' to toggle mode, or 'c' for calibration: ")
+            command = input("Enter a channel (0-15), 't' to toggle mode, or 'c' for calibration or 'm' for pinch chicken: ")
             if command.lower() == 't':
                 toggle_movement_mode()
             elif command.lower() == 'c':
                 calibrate_servos()
+            elif command.lower() == 'm':
+                calibrate_servos_stop()
             else:
                 channel = int(command)
                 if 0 <= channel <= 15:
