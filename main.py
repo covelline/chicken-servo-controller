@@ -6,7 +6,8 @@ import board
 import rtmidi
 from adafruit_pca9685 import PCA9685
 import threading
-from colorama import Fore, Style, init
+from colorama import Fore, init
+import subprocess
 
 # coloramaの初期化
 init(autoreset=True)
@@ -36,10 +37,22 @@ if should_send_signal:
     pca.frequency = PWM_FREQUENCY
     servo_channels = [pca.channels[i] for i in range(16)]
 
+def get_temp():
+    """ラズパイのCPU温度を取得する関数"""
+    try:
+        # vcgencmd measure_temp コマンドの出力を取得
+        temp_output = subprocess.check_output(['vcgencmd', 'measure_temp']).decode()
+        # 正規表現で温度のみを抽出
+        temp = temp_output.split('=')[1].split("'")[0]
+        return f"{temp}°C"
+    except Exception as e:
+        return "-"
+
 def timestamped_print(*args, error=False):
-    """現在の時刻を含むメッセージを出力する関数"""
+    """現在の時刻とラズパイの温度を含むメッセージを出力する関数"""
     current_time = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
-    message = f"[{current_time}] {' '.join(map(str, args))}"
+    temp = get_temp()  # 温度を取得
+    message = f"[{current_time}] [{temp}] {' '.join(map(str, args))}"
     if error:
         print(Fore.RED + message)  # エラーメッセージは赤色で表示
     else:
