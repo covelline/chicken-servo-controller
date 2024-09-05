@@ -8,6 +8,8 @@ from adafruit_pca9685 import PCA9685
 import threading
 from colorama import Fore, init
 import subprocess
+import logging
+import logging.handlers
 
 # coloramaの初期化
 init(autoreset=True)
@@ -37,6 +39,22 @@ if should_send_signal:
     pca.frequency = PWM_FREQUENCY
     servo_channels = [pca.channels[i] for i in range(16)]
 
+# ロガーの設定
+logger = logging.getLogger("ServoControl")
+logger.setLevel(logging.INFO)
+
+# Syslogへのハンドラ設定 (address="/dev/log" を指定)
+syslog_handler = logging.handlers.SysLogHandler(address="/dev/log")
+syslog_handler.setLevel(logging.INFO)
+
+# ログフォーマットの設定
+logger.addHandler(syslog_handler)
+
+# コンソールにも出力するハンドラ設定
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+logger.addHandler(console_handler)
+
 def get_temp():
     """ラズパイのCPU温度を取得する関数"""
     try:
@@ -54,9 +72,11 @@ def timestamped_print(*args, error=False):
     temp = get_temp()  # 温度を取得
     message = f"[{current_time}] [{temp}] {' '.join(map(str, args))}"
     if error:
-        print(Fore.RED + message)  # エラーメッセージは赤色で表示
+        logger.error(message)  # エラーメッセージをsyslogに送信
+        print(Fore.RED + message, flush=True)
     else:
-        print(message)
+        logger.info(message)  # 通常メッセージをsyslogに送信
+        print(message, flush=True)
 
 def worker(channel):
     """セマフォで制御されたワーカースレッド"""
