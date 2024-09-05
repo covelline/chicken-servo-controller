@@ -6,11 +6,18 @@
 
 ## 起動方法
 
+自動起動するようになっている
+
+### 手動で起動する場合
+
 
 ```bash
 # sshの設定方法はREADME参照
-ssh raspberrypi@192.168.1.107
+ssh raspberrypi@chicken-raspberrypi.local
 # ここからラズパイ側
+# 自動起動しているラズパイを止める
+sudo systemctl stop chicken.service
+# 移動
 cd src/chicken-servo-controller
 ./start.sh
 # ちなみにデフォルトは同時に鳴らせるのは3音になっているが増やしたい場合は
