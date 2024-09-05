@@ -203,24 +203,29 @@ def calibrate_servos_stop():
 
 def check_key_press():
     """キーボード入力を処理する関数"""
-    while True:
-        try:
-            command = input("Enter a channel (0-15), 't' to toggle mode, or 'c' for calibration or 'm' for pinch chicken: ")
-            if command.lower() == 't':
-                toggle_movement_mode()
-            elif command.lower() == 'c':
-                calibrate_servos()
-            elif command.lower() == 'm':
-                calibrate_servos_stop()
-            else:
-                channel = int(command)
-                if 0 <= channel <= 15:
-                    worker_thread = threading.Thread(target=worker, args=(channel,))
-                    worker_thread.start()
+    enable_input = os.getenv('ENABLE_INPUT', 'true') == 'true'
+    # キーボード入力のスレッドを起動、inputが無効な場合は何もしない
+    if enable_input:
+        while True:
+            try:
+                command = input("Enter a channel (0-15), 't' to toggle mode, or 'c' for calibration or 'm' for pinch chicken: ")
+                if command.lower() == 't':
+                    toggle_movement_mode()
+                elif command.lower() == 'c':
+                    calibrate_servos()
+                elif command.lower() == 'm':
+                    calibrate_servos_stop()
                 else:
-                    timestamped_print("Please enter a valid channel number between 0 and 15.", error=True)
-        except ValueError:
-            timestamped_print("Please enter a valid channel number between 0 and 15.", error=True)
+                    channel = int(command)
+                    if 0 <= channel <= 15:
+                        worker_thread = threading.Thread(target=worker, args=(channel,))
+                        worker_thread.start()
+                    else:
+                        timestamped_print("Please enter a valid channel number between 0 and 15.", error=True)
+            except ValueError:
+                timestamped_print("Please enter a valid channel number between 0 and 15.", error=True)
+    else:
+        timestamped_print("Input is disabled. Running without interactive mode.")
 
 def is_real_midi_device(port_name):
     """実際のMIDIデバイスかどうかを判定する関数"""
@@ -243,7 +248,6 @@ def main():
             timestamped_print(f"Error opening MIDI port: {e}", error=True)
             timestamped_print("No real MIDI input ports available. Switching to keyboard input only.")
     
-    # キーボード入力のスレッドを常に起動
     keyboard_thread = threading.Thread(target=check_key_press)
     keyboard_thread.daemon = True
     keyboard_thread.start()

@@ -14,7 +14,7 @@ ssh raspberrypi@192.168.1.107
 cd src/chicken-servo-controller
 ./start.sh
 # ちなみにデフォルトは同時に鳴らせるのは3音になっているが増やしたい場合は
-# ./start.sh 4
+# ./start.sh --max-tasks 4
 # のように起動することもできる(多くしすぎると電力が足らなくなるので注意)
 ```
 
@@ -53,5 +53,5 @@ MAX_CONCURRENT_TASKS = int(os.getenv('MAX_CONCURRENT_TASKS', 3)) #同時に動�
 ### MAX_CONCURRENT_TASKS
 
 同時に動かせるサーボの数。デフォルトでは3になっている。
-スクリプト起動時の引数(`./start.sh 4`)のように指定することもできる
+スクリプト起動時の引数(`./start.sh --max-tasks 4`)のように指定することもできる
 多すぎると電力不足で動かないかも？
