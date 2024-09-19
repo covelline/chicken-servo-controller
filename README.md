@@ -26,3 +26,7 @@ https://togetter.com/li/2430765
 
 ボリュームを使ってサーボモータSG90を0～180°回す【テスター測定】
 https://fujimoostudios.org/?p=204
+
+# 実際に音程を調整する方法
+
+記事書いたら追記
